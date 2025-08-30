@@ -450,7 +450,7 @@ Expose 'inputs:' in workflow_call and use defaults, required flags, and types fo
 ## Important Concepts & Tricks
 
 - **Master the Fundamentals** — Practice core Git commands (add/commit/branch/rebase/merge/cherry-pick/revert) and understand objects (blob/tree/commit/tag).
-
+it
 - **Branching Strategy Clarity** — Be ready to explain GitHub Flow vs Git Flow and when to use each. Tie to your release cadence.
 
 - **Code Review Excellence** — Small PRs, clear descriptions, link issues, request specific feedback; use CODEOWNERS to route reviewers.
@@ -468,3 +468,7 @@ Expose 'inputs:' in workflow_call and use defaults, required flags, and types fo
 - **Interview Storytelling** — Use STAR (Situation, Task, Action, Result). Bring 2–3 concrete CI/CD incidents (a failure you fixed, a rollout you improved).
 
 - **Hands-on Prep** — Build a sample repo with a complete workflow: lint, test, build image, scan, deploy to a sandbox using OIDC.
+
+
+
+To know more about Github Actions click [here](https://github.com/lm-academy/github-actions-course)
