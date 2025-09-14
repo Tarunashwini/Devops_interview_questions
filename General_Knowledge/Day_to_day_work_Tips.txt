@@ -1,0 +1,107 @@
+To Install Docker and Docker-Compose on Private Instances.
+
+###### Run On Public instance ###
+
+mkdir docker-install && cd docker-install
+curl -LO https://download.docker.com/linux/static/stable/x86_64/docker-25.0.3.tgz
+tar -xvzf docker-25.0.3.tgz
+
+curl -LO https://github.com/docker/compose/releases/download/v2.24.6/docker-compose-linux-x86_64
+chmod +x docker-compose-linux-x86_64
+
+scp -i cashe-EKS-pp.pem -o ProxyCommand="ssh -i cashe-EKS-pp.pem ec2-user@54.160.159.219 -W %h:%p" -r docker-install ec2-user@192.168.1.99:~
+
+######## Run on Private Instance #############
+
+cd ~/docker-install
+
+# Move docker binaries
+sudo mv docker/* /usr/bin/
+sudo chmod +x /usr/bin/docker
+
+sudo tee /etc/systemd/system/docker.service > /dev/null <<EOF
+[Unit]
+Description=Docker Service
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/dockerd
+ExecReload=/bin/kill -s HUP \$MAINPID
+LimitNOFILE=1048576
+LimitNPROC=1048576
+LimitCORE=infinity
+TimeoutStartSec=0
+Restart=on-failure
+StartLimitBurst=3
+StartLimitInterval=60s
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Reload and start Docker
+sudo systemctl daemon-reexec
+sudo systemctl daemon-reload
+
+curl -LO https://github.com/containerd/containerd/releases/download/v1.7.13/containerd-1.7.13-linux-amd64.tar.gz
+tar -xvzf containerd-1.7.13-linux-amd64.tar.gz
+sudo mv bin/* /usr/bin/
+
+curl -LO https://github.com/opencontainers/runc/releases/download/v1.1.12/runc.amd64
+sudo install -m 755 runc.amd64 /usr/bin/runc
+
+sudo tee /etc/systemd/system/containerd.service > /dev/null <<EOF
+[Unit]
+Description=containerd container runtime
+Documentation=https://containerd.io
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/containerd
+Delegate=yes
+KillMode=process
+OOMScoreAdjust=-999
+LimitNOFILE=1048576
+LimitNPROC=infinity
+LimitCORE=infinity
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable containerd
+sudo systemctl start containerd
+
+------------ To Confirm Kernel Supports Required Features -------------
+
+lsmod | grep overlay
+mount | grep cgroup
+
+###### Run on Public instance ###
+
+mkdir ipt && cd ipt
+dnf download iptables --resolve
+
+scp *.rpm ec2-user@<bastion>:~/ ------------ Tranfer to Private instance
+
+sudo dnf install *.rpm -------- Run on Private instance
+
+---------- To fix the user permissions ------------------------
+
+sudo groupadd docker
+sudo usermod -aG docker ec2-user
+
+newgrp docker
+
+
+########### Docker compose install on Private instance #########
+
+sudo mkdir -p /usr/libexec/docker/cli-plugins
+sudo mv docker-compose-linux-x86_64 /usr/libexec/docker/cli-plugins/docker-compose
+sudo chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+
+# Verify
+docker compose version
+
+
