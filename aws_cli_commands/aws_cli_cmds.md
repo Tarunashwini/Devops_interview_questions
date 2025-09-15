@@ -5,7 +5,7 @@ https://www.youtube.com/watch?v=_wiGpBQGCjU
 
 ### Note:
 1. You can also refer a few and important [here](https://www.bluematador.com/learn/aws-cli-cheatsheet).
-2. For official AWS Docs. Click [here] (https://docs.aws.amazon.com/pdfs/cli/latest/userguide/aws-cli.pdf)
+2. For official AWS Docs. Click [here](https://docs.aws.amazon.com/pdfs/cli/latest/userguide/aws-cli.pdf)
 
 ## Setup
 
