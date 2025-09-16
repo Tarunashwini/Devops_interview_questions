@@ -1,0 +1,172 @@
+name: Build and push Go service to ECR
+
+on:
+  # This workflow is designed to be called by another workflow (reusable workflow).
+  workflow_call:
+    inputs:
+      # The name of the ECR repository to deploy the Docker container to.
+      aws_ecr_repository:
+        description: 'The name of the ECR repository to deploy the Docker container to.'
+        required: true
+        type: string
+      # The ARN of the role to assume for AWS authentication.
+      aws_role:
+        description: 'The ARN of the role to assume within Github Actions.'
+        required: true
+        type: string
+      # The AWS region for the ECR repository, with a default of 'us-east-1'.
+      aws_region:
+        description: 'The AWS region to deploy the Docker container in ECR.'
+        required: false
+        type: string
+        default: us-east-1
+      # The tag for the Docker image, defaulting to the Git SHA.
+      image_tag:
+        description: 'The tag of the image to deploy.'
+        required: false
+        type: string
+        default: ${{ github.sha }}
+      # The Go version to use for building, defaulting to 1.22.5.
+      go_version:
+        description: 'Go version to use when building.'
+        required: false
+        type: string
+        default: 1.22.5
+      # The name of the final Go project binary.
+      project_name:
+        description: 'The name of the project to build.'
+        required: true
+        type: string
+      # The path to the Go project source code.
+      project_path:
+        description: 'The path of the project to build relative to the root directory.'
+        required: false
+        type: string
+        default: ./
+    secrets:
+      # A secret token required by the calling workflow.
+      token:
+        required: true
+    outputs:
+      # Exports the URI of the ECR registry.
+      ecr_registry:
+        description: 'The URI of the registry that the image pushed to ECR.'
+        value: ${{ jobs.build.outputs.ecr_registry }}
+      # Exports the full URI of the tagged ECR image.
+      ecr_tag:
+        description: 'The URI of the tag pushed to the ECR registry.'
+        value: ${{ jobs.build.outputs.ecr_tag }}
+
+permissions:
+  # This permission is required to request a JWT for OIDC authentication with AWS.
+  id-token: write
+  # This permission is required to checkout the repository code.
+  contents: read
+
+jobs:
+  # Defines a single job named 'build' in this workflow.
+  build:
+    # Specifies the runner environment for this job.
+    runs-on: ubuntu-latest
+
+    # Defines outputs for the job, which can be consumed by the calling workflow.
+    outputs:
+      ecr_registry: ${{ steps.push.outputs.ecr_registry }}
+      ecr_tag: ${{ steps.push.outputs.ecr_tag }}
+
+    steps:
+      # The first step to check out the code from the repository.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Sets up the specified Go version on the runner.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ inputs.go_version }}
+
+      # Caches Go modules to speed up subsequent runs by reusing downloaded dependencies.
+      - name: Cache Go modules
+        id: go-mod-cache
+        uses: actions/cache@v4
+        with:
+          # Specifies the paths to cache: Go's build and module caches.
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          # Defines a cache key based on the runner OS, Go version, and a hash of go.sum.
+          key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
+          # Defines fallback keys to restore a partially matching cache.
+          restore-keys: |
+            ${{ runner.os }}-go-mod-
+
+      # Caches Go tool binaries to avoid reinstalling them on every run.
+      - name: Cache Go tool binaries
+        id: go-tool-cache
+        uses: actions/cache@v4
+        with:
+          # Specifies the path where the orchestrion binary will be stored.
+          path: ${{ runner.temp }}/go/bin
+          # Defines a cache key based on the runner OS, Go version, and a hash of go.mod.
+          key: ${{ runner.os }}-go-tool-${{ hashFiles('go.mod') }}
+          # Defines fallback keys.
+          restore-keys: |
+            ${{ runner.os }}-go-tool-
+
+      # A single step to build and install the Go project and its tools.
+      - name: Build and install orchestrion
+        run: |
+          # Prints a message indicating the start of the build.
+          echo "Building Go module for project: ${{ inputs.project_name }}"
+          # Changes the current directory to the project's path.
+          cd ${{ inputs.project_path }}
+
+          # Prints a message for clarity.
+          echo ">>>>>>>>>>>>>>>>>>>>>>>>>>>>> GO MOD TIDY <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
+          # Ensures go.mod and go.sum are in a consistent state and downloads dependencies.
+          go mod tidy
+
+          # Prints a message for clarity.
+          echo ">>>>>>>>>>>>>>>>>>>>>>>>>>>>> Install datadog orchestrion tool <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
+          # Creates the directory for the cached binary if it doesn't exist.
+          mkdir -p ${{ runner.temp }}/go/bin
+
+          # Installs the orchestrion tool binary.
+          go install github.com/DataDog/orchestrion@latest
+
+          # Moves the installed orchestrion binary to the cacheable directory.
+          mv ${HOME}/go/bin/orchestrion ${{ runner.temp }}/go/bin/orchestrion
+
+          # Runs the orchestrion pin command using the cached binary.
+          ${{ runner.temp }}/go/bin/orchestrion pin
+
+          # Prints a message for clarity.
+          echo ">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> CGO_ENABLED <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
+          # Builds the Go binary with CGO disabled for a static build.
+          # The -installsuffix cgo is a legacy flag.
+          # The -o flag specifies the output filename for the binary.
+          CGO_ENABLED=0 GOOS=linux ${{ runner.temp }}/go/bin/orchestrion go build -installsuffix cgo -o ${{ inputs.project_name }} .
+
+      # Saves the Go modules cache if a cache hit did not occur in the restore step.
+      - name: Save Go module cache
+        # Conditional check to run only on a cache miss.
+        if: steps.go-mod-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          # The same paths as the restore step.
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          # The same cache key as the restore step.
+          key: ${{ runner.os }}-go-mod-${{ hashFiles('**/go.sum') }}
+
+      # Saves the Go tool binaries cache if a cache hit did not occur.
+      - name: Save Go tool cache
+        # Conditional check to run only on a cache miss.
+        if: steps.go-tool-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          # The same paths as the restore step.
+          path: ${{ runner.temp }}/go/bin
+          # The same cache key as the restore step.
+          key: ${{ runner.os }}-go-tool-${{ hashFiles('go.mod') }}
